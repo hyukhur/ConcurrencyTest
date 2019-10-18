@@ -20,48 +20,79 @@ class ConcurrencyTests: XCTestCase {
         self.waitForExpectations(timeout: 10)
     }
 
-    func testloadMessageWithinTimeout() {
-        var expected = ""
-        let group = DispatchGroup()
-
-        for _ in (0..<ConcurrencyTests.tryThreadhold) {
-            let start = Date()
-            var diff = TimeInterval(0)
-            group.enter()
+    func testloadMessageOnMainQueue() {
+        let expectation = self.expectation(description: "testloadMessageOnMainQueue")
+        DispatchQueue.main.async {
             loadMessage { combinedMessage in
-                expected = combinedMessage
-                diff = Date().timeIntervalSince(start)
-                group.leave()
-            }
-            group.wait()
-            if TimeInterval(2) >= diff {
-                break
+                XCTAssertTrue([ConcurrencyTests.expectMessage, ConcurrencyTests.errorMessage].contains(combinedMessage), combinedMessage)
+                expectation.fulfill()
             }
         }
+        self.waitForExpectations(timeout: 10)
+    }
 
+    func testloadMessageOnConcurrentQueue() {
+        let expectation = self.expectation(description: "testloadMessageOnConcurrentQueue")
+        DispatchQueue.global().sync {
+            loadMessage { combinedMessage in
+                XCTAssertTrue([ConcurrencyTests.expectMessage, ConcurrencyTests.errorMessage].contains(combinedMessage), combinedMessage)
+                expectation.fulfill()
+            }
+        }
+        self.waitForExpectations(timeout: 10)
+    }
+
+    func testloadMessageWithinTimeout() {
+        let expectation = self.expectation(description: "testloadMessageWithinTimeout")
+        var expected = ""
+        DispatchQueue.global().async {
+            let group = DispatchGroup()
+            for _ in (0..<ConcurrencyTests.tryThreadhold) {
+                let start = Date()
+                var diff = TimeInterval(0)
+                group.enter()
+                loadMessage { combinedMessage in
+                    expected = combinedMessage
+                    diff = Date().timeIntervalSince(start)
+                    group.leave()
+                }
+                group.wait()
+                if TimeInterval(2) >= diff {
+                    break
+                }
+            }
+            expectation.fulfill()
+        }
+
+        self.waitForExpectations(timeout: 10)
         XCTAssertEqual(ConcurrencyTests.expectMessage, expected)
     }
 
     static let errorMessage = "Unable to load message - Time out exceeded"
     func testloadMessageTimeout() {
+        let expectation = self.expectation(description: "testloadMessageTimeout")
         var expected = ""
-        let group = DispatchGroup()
 
-        for _ in (0..<ConcurrencyTests.tryThreadhold) {
-            let start = Date()
-            var diff = TimeInterval(0)
-            group.enter()
-            loadMessage { combinedMessage in
-                expected = combinedMessage
-                diff = Date().timeIntervalSince(start)
-                group.leave()
+        DispatchQueue.global().async {
+            let group = DispatchGroup()
+            for _ in (0..<ConcurrencyTests.tryThreadhold) {
+                let start = Date()
+                var diff = TimeInterval(0)
+                group.enter()
+                loadMessage { combinedMessage in
+                    expected = combinedMessage
+                    diff = Date().timeIntervalSince(start)
+                    group.leave()
+                }
+                group.wait()
+                if TimeInterval(2) < diff {
+                    break
+                }
             }
-            group.wait()
-            if TimeInterval(2) < diff {
-                break
-            }
+            expectation.fulfill()
         }
 
+        self.waitForExpectations(timeout: 10)
         XCTAssertEqual(ConcurrencyTests.errorMessage, expected)
     }
 }

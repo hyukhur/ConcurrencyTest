@@ -42,10 +42,15 @@ struct MessageComposer {
     /// This function blocks another execution.
     /// - Parameters:
     ///   - timeout: Timeout to wait for the result.
+    ///   - queue: DispatchQueue to execute fetching.
     ///   - completion: The completion handler to execute after the fetch all messages is completed with Composed messages from fetch functions or the timeout message after timeout.
-    func load(timeout: DispatchTimeInterval = .seconds(2), completion: @escaping (String) -> Void) {
-        let message = self.fetch(timeout: timeout)
-        completion(message)
+    func load(timeout: DispatchTimeInterval = .seconds(2), queue: DispatchQueue = DispatchQueue.global(), completion: @escaping (String) -> Void) {
+        queue.async {
+            let message = self.fetch(timeout: timeout)
+            DispatchQueue.main.async {
+                completion(message)
+            }
+        }
     }
 }
 
@@ -53,7 +58,6 @@ struct MessageComposer {
 /// If loading either part of the message takes more than 2 seconds then it should complete with the String
 ///   "Unable to load message - Time out exceeded".
 ///
-/// This function blocks another execution.
 /// - Parameter completion: The completion handler to execute after the fetch all messages is completed.
 func loadMessage(completion: @escaping (String) -> Void) {
     MessageComposer(fetchers: [fetchMessageOne(completion:), fetchMessageTwo(completion:)]).load(completion: completion)
