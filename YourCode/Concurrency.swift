@@ -4,34 +4,57 @@
 
 import Foundation
 
-let timeoutTimeInterval: Int = 2
-let timeoutMessage = "Unable to load message - Time out exceeded"
+/// It gathers messages from Fetcher functions and concats these.
+struct MessageComposer {
+    typealias CompletionHandler = (String) -> Void
+    typealias Fetcher = (@escaping CompletionHandler) -> ()
+
+    // Functions to able to fetch a message with a completion handler.
+    var fetchers: [Fetcher]
+
+    static let timeoutMessage = "Unable to load message - Time out exceeded"
+
+    /// Sync function to load messages from fetch functions.
+    ///
+    /// - Parameter timeout: Timeout to wait for the result.
+    /// - Returns: Composed messages from fetch functions or the timeout message after timeout.
+    func fetch(timeout: DispatchTimeInterval = .seconds(2)) -> String {
+        let group: DispatchGroup = DispatchGroup()
+        var results: [String] = Array(repeating: "", count: fetchers.count)
+
+        for fetcher in fetchers.enumerated() {
+            group.enter()
+            fetcher.element() { message in
+                results[fetcher.offset] = message
+                group.leave()
+            }
+        }
+        switch group.wait(timeout: DispatchTime.now() + timeout) {
+        case .success:
+            return results.joined(separator: " ")
+        case .timedOut:
+            return MessageComposer.timeoutMessage
+        }
+    }
+
+    /// Async function to load messages from fetch functions.
+    ///
+    /// This function blocks another execution.
+    /// - Parameters:
+    ///   - timeout: Timeout to wait for the result.
+    ///   - completion: The completion handler to execute after the fetch all messages is completed with Composed messages from fetch functions or the timeout message after timeout.
+    func load(timeout: DispatchTimeInterval = .seconds(2), completion: @escaping (String) -> Void) {
+        let message = self.fetch(timeout: timeout)
+        completion(message)
+    }
+}
 
 /// This function should fetch both parts of the message, `fetchMessageOne` and `fetchMessageTwo`.
 /// If loading either part of the message takes more than 2 seconds then it should complete with the String
 ///   "Unable to load message - Time out exceeded".
 ///
 /// This function blocks another execution.
-/// - Parameter completion: The completion handler to execute after the fetch all message is completed.
+/// - Parameter completion: The completion handler to execute after the fetch all messages is completed.
 func loadMessage(completion: @escaping (String) -> Void) {
-    let group = DispatchGroup()
-    var firstMessage = ""
-    var secondMessage = ""
-    group.enter()
-    fetchMessageOne { (messageOne) in
-        firstMessage = messageOne
-        group.leave()
-    }
-    group.enter()
-    fetchMessageTwo { (messageTwo) in
-        secondMessage = messageTwo
-        group.leave()
-    }
-
-    switch group.wait(timeout: DispatchTime.now() + DispatchTimeInterval.seconds(timeoutTimeInterval) ) {
-    case .success:
-        completion("\(firstMessage) \(secondMessage)")
-    case .timedOut:
-        completion(timeoutMessage)
-    }
+    MessageComposer(fetchers: [fetchMessageOne(completion:), fetchMessageTwo(completion:)]).load(completion: completion)
 }

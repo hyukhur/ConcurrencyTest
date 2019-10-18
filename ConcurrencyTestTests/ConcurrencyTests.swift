@@ -65,3 +65,85 @@ class ConcurrencyTests: XCTestCase {
         XCTAssertEqual(ConcurrencyTests.errorMessage, expected)
     }
 }
+
+class MessageComposerTests: XCTestCase {
+    struct MockFetchers {
+        var message = ConcurrencyTests.errorMessage
+        var interval: DispatchTimeInterval = .milliseconds(1)
+        func fastFetcher(completion: @escaping (String) -> Void) {
+            DispatchQueue.global().async {
+                completion(self.message)
+            }
+        }
+        func slowFetcher(completion: @escaping (String) -> Void) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + interval) {
+                completion(self.message)
+            }
+        }
+        func loseFetcher(completion: @escaping (String) -> Void) {}
+    }
+
+    func testMakingMessage() {
+        let expectation = self.expectation(description: "testMakingMessage")
+
+        let composer = MessageComposer(fetchers: [
+            MockFetchers(message: "Hello", interval: .milliseconds(1)).fastFetcher(completion:),
+            MockFetchers(message: "world", interval: .milliseconds(1)).slowFetcher(completion:)
+            ])
+        composer.load { (message) in
+            XCTAssertEqual(ConcurrencyTests.expectMessage, message)
+            expectation.fulfill()
+        }
+        self.waitForExpectations(timeout: 10)
+
+        XCTAssertEqual(ConcurrencyTests.expectMessage, composer.fetch())
+    }
+
+    func testMakingError() {
+        let expectation = self.expectation(description: "testMakingError")
+
+        let composer = MessageComposer(fetchers: [
+            MockFetchers(message: "Hello", interval: .milliseconds(1)).fastFetcher(completion:),
+            MockFetchers(message: "world", interval: .milliseconds(2)).slowFetcher(completion:)
+            ])
+        composer.load(timeout: .milliseconds(1)) { (message) in
+            XCTAssertEqual(ConcurrencyTests.errorMessage, message)
+            expectation.fulfill()
+        }
+
+        self.waitForExpectations(timeout: 1)
+        XCTAssertEqual(ConcurrencyTests.errorMessage, composer.fetch(timeout: .milliseconds(1)))
+    }
+
+    func testFasterSecondFetcher() {
+        let expectation = self.expectation(description: "testFasterSecondFetcher")
+
+        let composer = MessageComposer(fetchers: [
+            MockFetchers(message: "Hello", interval: .milliseconds(2)).slowFetcher(completion:),
+            MockFetchers(message: "world", interval: .milliseconds(1)).fastFetcher(completion:)
+            ])
+        composer.load(timeout: .milliseconds(3)) { (message) in
+            XCTAssertEqual(ConcurrencyTests.expectMessage, message)
+            expectation.fulfill()
+        }
+        self.waitForExpectations(timeout: 1)
+
+        XCTAssertEqual(ConcurrencyTests.expectMessage, composer.fetch(timeout: .milliseconds(3)))
+    }
+
+    func testLostFirstFetcher() {
+        let expectation = self.expectation(description: "testLostFirstFetcher")
+
+        let composer = MessageComposer(fetchers: [
+            MockFetchers(message: "Hello", interval: .milliseconds(1)).loseFetcher(completion:),
+            MockFetchers(message: "world", interval: .milliseconds(1)).fastFetcher(completion:)
+            ])
+        composer.load(timeout: .milliseconds(2)) { (message) in
+            XCTAssertEqual(ConcurrencyTests.errorMessage, message)
+            expectation.fulfill()
+        }
+        self.waitForExpectations(timeout: 1)
+
+        XCTAssertEqual(ConcurrencyTests.errorMessage, composer.fetch(timeout: .milliseconds(2)))
+    }
+}
