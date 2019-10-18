@@ -8,4 +8,4 @@
 * After you have completed your test
     * Create a zip file containing your code and the git history.
         * Name this file ConcurrencyTest-YourName.zip
-    * Email this to your HSBC contact
+    * Email this to your contact
